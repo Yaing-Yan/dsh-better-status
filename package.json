@@ -1,7 +1,7 @@
 {
   "name": "dsh-better-status",
   "description": "DeepSeek Harness 插件：把文本形式的会话统计（轮/步、LLM/工具耗时、首 token、tok/s、缓存命中、输入/输出 token）替换为页面右侧直观醒目的图表面板，每秒刷新，并显示本次花费与 DeepSeek 账户余额。",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "keywords": [
     "dsh-plugin",
     "dsh",
