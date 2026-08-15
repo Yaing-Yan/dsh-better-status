@@ -1,0 +1,25 @@
+{
+  "name": "dsh-better-status",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness 插件：把文本形式的会话统计（轮/步、LLM/工具耗时、首 token、tok/s、缓存命中、输入/输出 token）替换为页面右侧直观醒目的图表面板。",
+  "keywords": [
+    "dsh-plugin",
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "status",
+    "charts",
+    "stats"
+  ],
+  "license": "MIT",
+  "author": "Yaing-Yan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yaing-Yan/dsh-better-status.git"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
+}
