@@ -2,17 +2,19 @@
 //
 // Paste everything below (the `return { ... }` function body) into the
 // `code.client` field when defining the plugin in the DeepSeek Harness web
-// GUI. No Host half is required: all data is read through the standard
-// `useProjection` / `useSession` slot props injected into session-scoped
-// slots by the shell.
+// GUI. Pair it with `src/host.js` in `code.host` (the Host half fetches the
+// DeepSeek account balance through Package-private RPC `getBalance`).
 //
 // It replaces the shipped text stats line (slot `conversation.composer.dock`,
-// id `stats`) with a fixed, right-side chart panel.
+// id `stats`) with a fixed, right-side chart panel that refreshes once per
+// second and shows turn/step counts, LLM/tool time, TTFT, throughput, cache
+// hit, token usage, context occupancy, plus estimated cost and account balance.
 
 return {
   apply(ctx) {
     const slots = ctx.get('slots')
     if (slots === undefined) return
+    const timer = ctx.get('timer')
 
     // ---- formatting helpers (mirror shipped StatsLine) ----
     function formatDuration(ms) {
@@ -94,6 +96,33 @@ return {
       pink: '#f472b6',
     }
 
+    // ---- pricing (USD per 1M tokens) — 按你的模型单价修改 ----
+    const PRICING = {
+      inputUsdPerM: 0.27,
+      cacheHitUsdPerM: 0.07,
+      outputUsdPerM: 1.10,
+    }
+    function costUsd(usage) {
+      const uncached = usage.uncachedInputTokens || 0
+      const cacheRead = usage.cacheReadTokens || 0
+      const cacheWrite = usage.cacheWriteTokens || 0
+      const output = usage.outputTokens || 0
+      return (uncached + cacheWrite) / 1e6 * PRICING.inputUsdPerM
+        + cacheRead / 1e6 * PRICING.cacheHitUsdPerM
+        + output / 1e6 * PRICING.outputUsdPerM
+    }
+    function formatUsd(v) {
+      if (v == null || !(v > 0)) return '$0.00'
+      if (v < 0.01) return '$' + v.toFixed(4)
+      return '$' + v.toFixed(2)
+    }
+    function formatBalance(b) {
+      if (b == null) return '…'
+      if (b.ok !== true) return '—'
+      const sym = b.currency === 'CNY' ? '¥' : b.currency === 'USD' ? '$' : (b.currency ? b.currency + ' ' : '')
+      return sym + b.totalBalance
+    }
+
     // ---- package styles ----
     styles.insert(`.bsb-panel{position:fixed;top:64px;right:16px;width:300px;z-index:1000;box-sizing:border-box;background:var(--dsw-alias-bg-overlay,#fff);color:var(--dsw-alias-label-primary,#111);border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));border-radius:14px;box-shadow:var(--dsw-shadow-lv3,0 8px 30px rgba(0,0,0,.16));overflow:hidden;font-family:var(--dsw-font-family,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif)}
 .bsb-header{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:10px 14px;background:transparent;border:none;cursor:pointer;color:inherit;font:inherit;text-align:left}
@@ -105,7 +134,7 @@ return {
 .bsb-body{display:flex;flex-direction:column;gap:14px;padding:2px 14px 14px;max-height:calc(100vh - 140px);overflow-y:auto}
 .bsb-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .bsb-tile{border:1px solid var(--dsw-alias-border-l1,rgba(0,0,0,.08));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:2px;background:var(--dsw-alias-bg-layer-1,rgba(0,0,0,.02))}
-.bsb-tile-num{font-size:24px;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums}
+.bsb-tile-num{font-size:20px;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums}
 .bsb-tile-label{font-size:11px;color:var(--dsw-alias-label-tertiary,#888);line-height:16px}
 .bsb-section{display:flex;flex-direction:column;gap:8px}
 .bsb-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--dsw-alias-label-tertiary,#888);line-height:16px}
@@ -226,6 +255,24 @@ return {
       const useProjection = props.useProjection
       const useSession = props.useSession
       const [open, setOpen] = React.useState(true)
+      const [tick, setTick] = React.useState(0)
+      const [balance, setBalance] = React.useState(null)
+      React.useEffect(() => {
+        if (timer === undefined) return undefined
+        return timer.interval(() => setTick((t) => t + 1), 1000)
+      }, [])
+      React.useEffect(() => {
+        if (tick % 60 !== 0) return undefined
+        if (typeof host === 'undefined' || typeof host.call !== 'function') return undefined
+        let alive = true
+        host.call('getBalance', {}).then((r) => {
+          if (alive) setBalance(r)
+        }).catch((e) => {
+          if (alive) setBalance({ ok: false, error: String(e && e.message ? e.message : e) })
+        })
+        return () => { alive = false }
+      }, [tick])
+      void tick
 
       const settledNodes = typeof useSession === 'function' ? useSession((s) => s.chat.legacy.nodes) : undefined
       const usage = typeof useProjection === 'function' ? useProjection('tokenUsage') : undefined
@@ -248,6 +295,7 @@ return {
         outputTokens = usage.outputTokens || 0
         cacheHit = cacheHitPct(usage)
       }
+      const spend = usage != null ? costUsd(usage) : 0
       const occ = contextOccupancy(pressure)
 
       const hasData = steps > 0 || inputTokens > 0 || outputTokens > 0
@@ -265,6 +313,13 @@ return {
           React.createElement('div', { className: 'bsb-tiles' },
             Tile({ num: turns, label: '轮', color: C.blue }),
             Tile({ num: steps, label: '步', color: C.purple }),
+          ),
+          React.createElement('div', { className: 'bsb-section' },
+            React.createElement('div', { className: 'bsb-section-title' }, '花费 / 余额'),
+            React.createElement('div', { className: 'bsb-tiles' },
+              Tile({ num: '≈' + formatUsd(spend), label: '本次花费', color: C.amber }),
+              Tile({ num: formatBalance(balance), label: '账户余额', color: C.green }),
+            ),
           ),
           (llmMs > 0 || toolMs > 0) ? React.createElement('div', { className: 'bsb-section' },
             React.createElement('div', { className: 'bsb-section-title' }, '耗时分布'),
