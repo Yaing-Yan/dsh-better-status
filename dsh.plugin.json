@@ -1,7 +1,7 @@
 {
   "name": "dsh-better-status",
-  "description": "把文本形式的会话统计替换为页面右侧直观醒目的图表面板，每秒刷新，并显示本次花费与 DeepSeek 账户余额。",
-  "version": "1.0.2",
+  "description": "把文本形式的会话统计替换为页面右侧直观醒目的图表面板，每秒刷新。",
+  "version": "1.0.3",
   "entry": {
     "name": "dsh-better-status",
     "inject": []
